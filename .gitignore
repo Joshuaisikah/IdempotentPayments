@@ -1,0 +1,25 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.csproj.user
+*.db
+
+## Tests
+TestResults/
+
+## IDE
+.vscode/
+.idea/
+*.sln.iml
+.vs/
+
+## Database
+*.db
+*.sqlite
+
+## OS
+.DS_Store
+Thumbs.db

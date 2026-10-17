@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="IdempotentPayments.Api/IdempotentPayments.Api.csproj" />
+  <Project Path="IdempotentPayments.Infrastructure/IdempotentPayments.Infrastructure.csproj" />
+  <Project Path="IdempotentPayments.Tests/IdempotentPayments.Tests.csproj" />
+</Solution>
