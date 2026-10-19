@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:17
+    container_name: paymentdb
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment
+    ports:
+      - "5433:5432" # 5433 so it doesn't clash with your other projects' Postgres
+    volumes:
+      - paymentdb-pgdata:/var/lib/postgresql/data
+
+volumes:
+  paymentdb-pgdata:
