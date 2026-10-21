@@ -1,4 +1,5 @@
 using IdempotentPayments.Infrastructure.Data;
+using IdempotentPayments.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
@@ -12,7 +13,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 // OpenAPI document generation (built-in since .NET 9, works on .NET 8+ with the package)
 builder.Services.AddOpenApi();
-
+builder.Services.AddSingleton<FakePaymentProvider>();
+builder.Services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<FakePaymentProvider>());
 var app = builder.Build();
 
 // Development-only: serve the OpenAPI document + Scalar UI
