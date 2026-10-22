@@ -16,6 +16,9 @@ public class FakePaymentProvider : IPaymentProvider
     private readonly ConcurrentDictionary<string, Behaviour> _behaviours = new();
     private readonly ConcurrentDictionary<string, ProviderResult> _charges = new();
 
+    // null = throw for unconfigured references (what the tests rely on).
+    public Behaviour? DefaultBehaviour { get; set; }
+
     public void Configure(string reference, Behaviour behaviour) =>
         _behaviours[reference] = behaviour;
 
@@ -29,9 +32,13 @@ public class FakePaymentProvider : IPaymentProvider
         ct.ThrowIfCancellationRequested();
         if (!_behaviours.TryGetValue(reference, out var behaviour))
         {
-            throw new InvalidOperationException(
-                $"No behaviour Configure for reference '{reference}'."
-            );
+            if (DefaultBehaviour is null)
+            {
+                throw new InvalidOperationException(
+                    $"No behaviour configured for reference '{reference}'."
+                );
+            }
+            behaviour = DefaultBehaviour.Value;
         }
         switch (behaviour)
         {
