@@ -56,8 +56,8 @@ public static class PaymentEndpoints
         var existing = await store.FindAsync(idempotencyKey, ct);
         if (existing is not null)
             return Resolve(http, existing, hash);
-
-        var claimed = await store.TryClaimAsync(idempotencyKey, hash, ct);
+        var paymentId = Guid.NewGuid();
+        var claimed = await store.TryClaimAsync(idempotencyKey, hash, paymentId, ct);
         if (!claimed)
         {
             existing = await store.FindAsync(idempotencyKey, ct);
@@ -67,10 +67,10 @@ public static class PaymentEndpoints
             return Resolve(http, existing, hash);
         }
 
-        var payment = await service.CreateAsync(request.Amount, currency, ct);
+        var payment = await service.CreateAsync(paymentId, request.Amount, currency, ct);
 
         var body = JsonSerializer.Serialize(ToResponse(payment), JsonOptions);
-        await store.CompleteAsync(idempotencyKey, StatusCodes.Status201Created, body, payment.Id);
+        await store.CompleteAsync(idempotencyKey, StatusCodes.Status201Created, body);
 
         return Replay(http, StatusCodes.Status201Created, body, payment.Id);
     }

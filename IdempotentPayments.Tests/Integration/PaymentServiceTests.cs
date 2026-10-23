@@ -63,7 +63,7 @@ public class PaymentServiceTests : IAsyncLifetime
         await using var db = NewContext();
         var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success));
 
-        var created = await service.CreateAsync(10.50m, "USD", CancellationToken.None);
+        var created = await service.CreateAsync(Guid.NewGuid(), 10.50m, "USD", CancellationToken.None);
 
         await using var fresh = NewContext();
         var row = await fresh.Payments.SingleAsync(p => p.Id == created.Id);
@@ -79,7 +79,7 @@ public class PaymentServiceTests : IAsyncLifetime
         await using var db = NewContext();
         var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Decline));
 
-        var created = await service.CreateAsync(5m, "USD", CancellationToken.None);
+        var created = await service.CreateAsync(Guid.NewGuid(), 5m, "USD", CancellationToken.None);
 
         await using var fresh = NewContext();
         var row = await fresh.Payments.SingleAsync(p => p.Id == created.Id);
@@ -94,7 +94,7 @@ public class PaymentServiceTests : IAsyncLifetime
         var provider = new AlwaysProvider(FakePaymentProvider.Behaviour.Success);
         var service = new PaymentService(db, provider);
 
-        var created = await service.CreateAsync(1m, "USD", CancellationToken.None);
+        var created = await service.CreateAsync(Guid.NewGuid(), 1m, "USD", CancellationToken.None);
 
         var status = await provider.Inner.GetStatusAsync(created.Id.ToString(), CancellationToken.None);
         status.Outcome.Should().Be(ProviderOutcome.Charged);
@@ -107,7 +107,7 @@ public class PaymentServiceTests : IAsyncLifetime
         var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success));
         var before = DateTime.UtcNow.AddSeconds(-5);
 
-        var created = await service.CreateAsync(1m, "USD", CancellationToken.None);
+        var created = await service.CreateAsync(Guid.NewGuid(), 1m, "USD", CancellationToken.None);
 
         await using var fresh = NewContext();
         var row = await fresh.Payments.SingleAsync(p => p.Id == created.Id);
@@ -121,7 +121,7 @@ public class PaymentServiceTests : IAsyncLifetime
         await using var db = NewContext();
         var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success));
 
-        var created = await service.CreateAsync(1m, "USD", CancellationToken.None);
+        var created = await service.CreateAsync(Guid.NewGuid(), 1m, "USD", CancellationToken.None);
 
         await using var fresh = NewContext();
         var row = await fresh.Payments.SingleAsync(p => p.Id == created.Id);
@@ -139,7 +139,7 @@ public class PaymentServiceTests : IAsyncLifetime
         Guid? id = null;
         try
         {
-            var created = await service.CreateAsync(7m, "USD", cts.Token);
+            var created = await service.CreateAsync(Guid.NewGuid(), 7m, "USD", cts.Token);
             id = created.Id;
         }
         catch (OperationCanceledException) { }
@@ -160,7 +160,7 @@ public class PaymentServiceTests : IAsyncLifetime
     {
         await using var db = NewContext();
         var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success));
-        var created = await service.CreateAsync(3m, "USD", CancellationToken.None);
+        var created = await service.CreateAsync(Guid.NewGuid(), 3m, "USD", CancellationToken.None);
 
         await using var db2 = NewContext();
         var found = await new PaymentService(db2, new AlwaysProvider(FakePaymentProvider.Behaviour.Success))

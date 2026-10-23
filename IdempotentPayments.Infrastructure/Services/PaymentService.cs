@@ -14,11 +14,16 @@ public class PaymentService
         _provider = provider;
     }
 
-    public async Task<Payment> CreateAsync(decimal amount, string currency, CancellationToken ct)
+    public async Task<Payment> CreateAsync(
+        Guid id,
+        decimal amount,
+        string currency,
+        CancellationToken ct
+    )
     {
         var payment = new Payment
         {
-            Id = Guid.NewGuid(),
+            Id = id,
             Amount = amount,
             Currency = currency,
             Status = PaymentStatus.Pending,

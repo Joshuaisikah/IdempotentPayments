@@ -12,13 +12,19 @@ public class IdempotencyStore
     public Task<IdempotencyKey?> FindAsync(string key, CancellationToken ct) =>
         _db.IdempotencyKeys.AsNoTracking().FirstOrDefaultAsync(k => k.Key == key, ct);
 
-    public async Task<bool> TryClaimAsync(string key, string requestHash, CancellationToken ct)
+    public async Task<bool> TryClaimAsync(
+        string key,
+        string requestHash,
+        Guid paymentId,
+        CancellationToken ct
+    )
     {
         _db.IdempotencyKeys.Add(
             new IdempotencyKey
             {
                 Key = key,
                 RequestHash = requestHash,
+                PaymentId = paymentId,
                 CreatedAt = DateTime.UtcNow,
             }
         );
@@ -38,14 +44,13 @@ public class IdempotencyStore
         }
     }
 
-    public Task CompleteAsync(string key, int statusCode, string body, Guid paymentId) =>
+    public Task CompleteAsync(string key, int statusCode, string body) =>
         _db
             .IdempotencyKeys.Where(k => k.Key == key)
             .ExecuteUpdateAsync(
                 s =>
                     s.SetProperty(k => k.ResponseStatusCode, statusCode)
-                        .SetProperty(k => k.ResponseBody, body)
-                        .SetProperty(k => k.PaymentId, paymentId),
+                        .SetProperty(k => k.ResponseBody, body),
                 CancellationToken.None
             );
 }
