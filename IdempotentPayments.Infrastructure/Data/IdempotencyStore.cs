@@ -56,6 +56,7 @@ public class IdempotencyStore
                 CancellationToken.None
             );
 
+    // WHERE guarantees: only the caller whose ClaimedAt still matches wins, and only while no response is stored.
     public async Task<bool> TryTakeOverAsync(
         string key,
         DateTime seenClaimedAt,
