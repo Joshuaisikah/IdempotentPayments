@@ -138,6 +138,11 @@ public static class PaymentEndpoints
             await store.CompleteAsync(existing.Key, StatusCodes.Status201Created, body);
             return Replay(http, StatusCodes.Status201Created, body, payment.Id);
         }
+        catch (OwnershipLostException)
+        {
+            // X is owned by someone else and not settled: ask the client to retry.
+            return InProgress(http);
+        }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             return ServiceUnavailable(http);

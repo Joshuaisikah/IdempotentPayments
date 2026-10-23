@@ -50,37 +50,52 @@ public class PaymentService
         if (payment is null)
             return await CreateAsync(id, amount, currency, ct);
 
-        switch (payment.Status)
+        try
         {
-            case PaymentStatus.Succeeded:
-            case PaymentStatus.Failed:
+            switch (payment.Status)
+            {
+                case PaymentStatus.Succeeded:
+                case PaymentStatus.Failed:
+                    return payment;
+
+                case PaymentStatus.Pending:
+                    return await ContinueAsync(payment, ct);
+
+                case PaymentStatus.Processing:
+                    await TouchOwnedAsync(payment, ct);
+
+                    var status = await WithTimeout(
+                        t => _provider.GetStatusAsync(payment.Id.ToString(), t),
+                        ct
+                    );
+
+                    return status.Outcome switch
+                    {
+                        ProviderOutcome.Charged or ProviderOutcome.Declined => await SettleAsync(
+                            payment,
+                            status
+                        ),
+                        ProviderOutcome.NotFound => await ChargeAndSettleAsync(payment, ct),
+                        _ => throw new InvalidOperationException(
+                            $"Unexpected provider outcome '{status.Outcome}' from GetStatusAsync."
+                        ),
+                    };
+
+                default:
+                    throw new InvalidOperationException($"Unhandled status '{payment.Status}'.");
+            }
+        }
+        catch (OwnershipLostException)
+        {
+            // Someone else moved X. Re-read the database's values into the tracked object.
+            await _db.Entry(payment).ReloadAsync(ct);
+
+            // Settled by the sweep or another taker: take the existing "settled" branch.
+            if (payment.Status is PaymentStatus.Succeeded or PaymentStatus.Failed)
                 return payment;
 
-            case PaymentStatus.Pending:
-                return await ContinueAsync(payment, ct);
-
-            case PaymentStatus.Processing:
-                await TouchOwnedAsync(payment, ct);
-
-                var status = await WithTimeout(
-                    t => _provider.GetStatusAsync(payment.Id.ToString(), t),
-                    ct
-                );
-
-                return status.Outcome switch
-                {
-                    ProviderOutcome.Charged or ProviderOutcome.Declined => await SettleAsync(
-                        payment,
-                        status
-                    ),
-                    ProviderOutcome.NotFound => await ChargeAndSettleAsync(payment, ct),
-                    _ => throw new InvalidOperationException(
-                        $"Unexpected provider outcome '{status.Outcome}' from GetStatusAsync."
-                    ),
-                };
-
-            default:
-                throw new InvalidOperationException($"Unhandled status '{payment.Status}'.");
+            // Still in flight under someone else: let the endpoint answer 409.
+            throw;
         }
     }
 
@@ -111,18 +126,9 @@ public class PaymentService
             );
 
         if (updated == 0)
-            throw new InvalidOperationException(
-                $"Lost ownership of payment {payment.Id} before provider call."
-            );
+            throw new OwnershipLostException(payment.Id);
 
         payment.UpdatedAt = now;
-    }
-
-    private async Task<Payment> ContinueAsync(Payment payment, CancellationToken ct)
-    {
-        SetStatus(payment, PaymentStatus.Processing);
-        await _db.SaveChangesAsync(ct); // Processing: still safe to cancel
-        return await ChargeAndSettleAsync(payment, ct);
     }
 
     private async Task<Payment> ChargeAndSettleAsync(Payment payment, CancellationToken ct)
@@ -132,6 +138,32 @@ public class PaymentService
             ct
         );
         return await SettleAsync(payment, result);
+    }
+
+    private async Task<Payment> ContinueAsync(Payment payment, CancellationToken ct)
+    {
+        var readStatus = payment.Status;
+        var readUpdatedAt = payment.UpdatedAt;
+        var now = DateTime.UtcNow;
+
+        // Only one of {takeover, sweep} may move this row out of its current state.
+        var updated = await _db
+            .Payments.Where(p =>
+                p.Id == payment.Id && p.Status == readStatus && p.UpdatedAt == readUpdatedAt
+            )
+            .ExecuteUpdateAsync(
+                s =>
+                    s.SetProperty(p => p.Status, PaymentStatus.Processing)
+                        .SetProperty(p => p.UpdatedAt, now),
+                ct
+            );
+
+        if (updated == 0)
+            throw new OwnershipLostException(payment.Id);
+
+        payment.Status = PaymentStatus.Processing;
+        payment.UpdatedAt = now;
+        return await ChargeAndSettleAsync(payment, ct);
     }
 
     private async Task<Payment> SettleAsync(Payment payment, ProviderResult result)
@@ -170,3 +202,6 @@ public class PaymentService
     public Task<Payment?> GetAsync(Guid id, CancellationToken ct) =>
         _db.Payments.FirstOrDefaultAsync(p => p.Id == id, ct);
 }
+
+public sealed class OwnershipLostException(Guid paymentId)
+    : Exception($"Lost ownership of payment {paymentId}.");
