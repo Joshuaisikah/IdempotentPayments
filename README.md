@@ -25,7 +25,7 @@ Optional: idempotent refunds, webhook callbacks on completion, partial capture.
 
 ## Acceptance criteria
 
-- [ ] 20 concurrent identical requests → exactly 1 provider call, 20 identical responses
+- [ ] 20 concurrent identical requests → exactly 1 provider call; every response is either the original `201` or `409 Conflict`; no `5xx`
 - [ ] Sequential retry after success → cached response, no second charge
 - [ ] Same key with a changed amount → `422`
 - [ ] Crash mid-payment, restart, retry with the same key → resolves without double charge

@@ -30,8 +30,8 @@ public class AppDbContext : DbContext
         keyEntity.HasKey(k => k.Key);
         keyEntity.Property(k => k.Key).HasMaxLength(255);
         keyEntity.Property(k => k.RequestHash).HasMaxLength(64).IsRequired();
-        keyEntity.Property(k => k.ResponseStatusCode).IsRequired();
-        keyEntity.Property(k => k.ResponseBody).IsRequired();
+        keyEntity.Property(k => k.ResponseStatusCode);
+        keyEntity.Property(k => k.ResponseBody);
         keyEntity.Property(k => k.PaymentId);
         keyEntity.Property(k => k.CreatedAt).IsRequired();
     }

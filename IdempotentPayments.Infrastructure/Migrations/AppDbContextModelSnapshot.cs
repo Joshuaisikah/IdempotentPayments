@@ -40,10 +40,9 @@ namespace IdempotentPayments.Infrastructure.Migrations
                         .HasColumnType("character varying(64)");
 
                     b.Property<string>("ResponseBody")
-                        .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<int>("ResponseStatusCode")
+                    b.Property<int?>("ResponseStatusCode")
                         .HasColumnType("integer");
 
                     b.HasKey("Key");

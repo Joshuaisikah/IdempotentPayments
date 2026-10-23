@@ -9,6 +9,7 @@ namespace IdempotentPayments.Api.Endpoints;
 public static class PaymentEndpoints
 {
     private const decimal MaxAmount = 1_000_000m;
+    private const int RetryAfterSeconds = 5;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -50,34 +51,62 @@ public static class PaymentEndpoints
             return Results.BadRequest(new { error = "Currency must be a 3-letter code." });
 
         var currency = request.Currency.ToUpperInvariant();
-
         var hash = RequestFingerprint.Compute(request.Amount, currency);
 
         var existing = await store.FindAsync(idempotencyKey, ct);
         if (existing is not null)
-        {
-            if (existing.RequestHash != hash)
-                return Results.UnprocessableEntity(
-                    new
-                    {
-                        error = "This Idempotency-Key was already used with a different request.",
-                    }
-                );
+            return Resolve(http, existing, hash);
 
-            return Replay(
-                http,
-                existing.ResponseStatusCode,
-                existing.ResponseBody,
-                existing.PaymentId
-            );
+        var claimed = await store.TryClaimAsync(idempotencyKey, hash, ct);
+        if (!claimed)
+        {
+            existing = await store.FindAsync(idempotencyKey, ct);
+            if (existing is null)
+                return InProgress(http);
+
+            return Resolve(http, existing, hash);
         }
 
         var payment = await service.CreateAsync(request.Amount, currency, ct);
-        var body = JsonSerializer.Serialize(ToResponse(payment), JsonOptions);
 
-        await store.SaveAsync(idempotencyKey, hash, StatusCodes.Status201Created, body, payment.Id);
+        var body = JsonSerializer.Serialize(ToResponse(payment), JsonOptions);
+        await store.CompleteAsync(idempotencyKey, StatusCodes.Status201Created, body, payment.Id);
 
         return Replay(http, StatusCodes.Status201Created, body, payment.Id);
+    }
+
+    private static IResult Resolve(HttpContext http, IdempotencyKey existing, string hash)
+    {
+        if (existing.RequestHash != hash)
+            return Results.UnprocessableEntity(
+                new { error = "This Idempotency-Key was already used with a different request." }
+            );
+
+        if (existing.ResponseBody is null || existing.ResponseStatusCode is null)
+            return InProgress(http);
+
+        return Replay(
+            http,
+            existing.ResponseStatusCode.Value,
+            existing.ResponseBody,
+            existing.PaymentId
+        );
+    }
+
+    private static IResult InProgress(HttpContext http)
+    {
+        http.Response.Headers["Retry-After"] = RetryAfterSeconds.ToString();
+        return Results.Conflict(
+            new { error = "A request with this Idempotency-Key is still in progress." }
+        );
+    }
+
+    private static IResult Replay(HttpContext http, int statusCode, string body, Guid? paymentId)
+    {
+        if (paymentId is not null)
+            http.Response.Headers.Location = $"/api/payments/{paymentId}";
+
+        return Results.Content(body, "application/json", statusCode: statusCode);
     }
 
     private static async Task<IResult> GetAsync(
@@ -88,14 +117,6 @@ public static class PaymentEndpoints
     {
         var payment = await service.GetAsync(id, ct);
         return payment is null ? Results.NotFound() : Results.Ok(ToResponse(payment));
-    }
-
-    private static IResult Replay(HttpContext http, int statusCode, string body, Guid? paymentId)
-    {
-        if (paymentId is not null)
-            http.Response.Headers.Location = $"/api/payments/{paymentId}";
-
-        return Results.Content(body, "application/json", statusCode: statusCode);
     }
 
     private static PaymentResponse ToResponse(Payment p) =>
