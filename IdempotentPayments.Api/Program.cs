@@ -19,7 +19,7 @@ builder.Services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<Fake
 
 // Scoped, because it holds the scoped AppDbContext
 builder.Services.AddScoped<PaymentService>();
-
+builder.Services.AddScoped<IdempotencyStore>();
 // OpenAPI document generation (built-in since .NET 9, works on .NET 8+ with the package)
 builder.Services.AddOpenApi();
 var app = builder.Build();
