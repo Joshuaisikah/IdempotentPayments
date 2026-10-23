@@ -10,7 +10,8 @@ public static class PaymentEndpoints
 {
     private const decimal MaxAmount = 1_000_000m;
     private const int RetryAfterSeconds = 5;
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public static IEndpointRouteBuilder MapPaymentEndpoints(this IEndpointRouteBuilder app)
     {
@@ -177,6 +178,6 @@ public static class PaymentEndpoints
         return payment is null ? Results.NotFound() : Results.Ok(ToResponse(payment));
     }
 
-    private static PaymentResponse ToResponse(Payment p) =>
+    internal static PaymentResponse ToResponse(Payment p) =>
         new(p.Id, p.Amount, p.Currency, p.Status.ToString(), p.ProviderReference, p.CreatedAt);
 }

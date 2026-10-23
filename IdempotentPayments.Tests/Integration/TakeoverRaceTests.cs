@@ -59,6 +59,7 @@ public class TakeoverRaceTests : IAsyncLifetime
             b.UseSetting("ConnectionStrings:paymentdb", ConnectionString);
             b.ConfigureTestServices(s =>
             {
+                TestDatabase.RemoveSweepLoop(s);
                 s.RemoveAll<IPaymentProvider>();
                 s.AddSingleton<IPaymentProvider>(_provider);
                 s.RemoveAll<IdempotencyOptions>();
@@ -185,5 +186,39 @@ public class TakeoverRaceTests : IAsyncLifetime
 
         statuses.Should().OnlyContain(s => s == HttpStatusCode.Created, Describe(statuses));
         _provider.Charges.Should().Be(chargesAfterRace);
+    }
+
+    // Real-world mix: the sweep (startup pass or a 30 s tick) hits the same stale
+    // payment while 20 retries race to take it over. Whoever wins, the outcome must
+    // be consistent: no 5xx, at most one charge, and the stored answer must match
+    // the payment row.
+    [Fact]
+    public async Task Sweep_and_concurrent_takers_on_the_same_payment_stay_consistent()
+    {
+        var (key, x) = await PlantStaleClaim(PaymentStatus.Processing);
+
+        using var scope = _factory.Services.CreateScope();
+        var sweep = scope.ServiceProvider.GetRequiredService<IdempotentPayments.Api.Services.PaymentSweep>();
+        var sweepTask = sweep.RunOnceAsync(CancellationToken.None);
+        var statuses = await FireConcurrently(key);
+        await sweepTask;
+        var why = $"responses were: {Describe(statuses)}";
+
+        statuses.Should().NotContain(s => (int)s >= 500, why);
+        _provider.Charges.Should().BeLessThanOrEqualTo(1, why);
+
+        await using var db = NewContext();
+        var payment = await db.Payments.SingleAsync(p => p.Id == x);
+        payment.Status.Should().BeOneOf(PaymentStatus.Succeeded, PaymentStatus.Failed);
+        if (payment.Status == PaymentStatus.Succeeded)
+            _provider.Charges.Should().Be(1, "Succeeded means the customer was charged");
+        else
+            _provider.Charges.Should().Be(0, "Failed means the customer was NOT charged");
+
+        var claim = await db.IdempotencyKeys.SingleAsync(k => k.Key == key);
+        if (claim.ResponseBody is not null)
+            System.Text.Json.JsonDocument.Parse(claim.ResponseBody).RootElement
+                .GetProperty("status").GetString().Should().Be(payment.Status.ToString(),
+                    "the stored answer must match the payment row");
     }
 }

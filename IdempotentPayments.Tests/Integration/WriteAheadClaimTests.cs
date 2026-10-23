@@ -62,6 +62,7 @@ public class WriteAheadClaimTests : IAsyncLifetime
             b.UseSetting("ConnectionStrings:paymentdb", ConnectionString);
             b.ConfigureTestServices(s =>
             {
+                TestDatabase.RemoveSweepLoop(s);
                 s.RemoveAll<IPaymentProvider>();
                 s.AddSingleton<IPaymentProvider>(_provider);
             });

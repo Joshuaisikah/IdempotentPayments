@@ -50,6 +50,9 @@ namespace IdempotentPayments.Infrastructure.Migrations
 
                     b.HasKey("Key");
 
+                    b.HasIndex("PaymentId")
+                        .HasDatabaseName("IdempotencyKeys_PaymentId");
+
                     b.ToTable("IdempotencyKeys");
                 });
 

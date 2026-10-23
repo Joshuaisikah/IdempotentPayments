@@ -1,4 +1,5 @@
 using IdempotentPayments.Api.Endpoints;
+using IdempotentPayments.Api.Services;
 using IdempotentPayments.Infrastructure.Data;
 using IdempotentPayments.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,9 @@ var providerTimeout = TimeSpan.FromSeconds(
 
 // Throws here if the relationship is violated, so the app refuses to start.
 builder.Services.AddSingleton(new IdempotencyOptions(staleAfter, providerTimeout));
+
+builder.Services.AddScoped<PaymentSweep>();
+builder.Services.AddHostedService<PaymentSweepService>();
 
 // OpenAPI document generation (built-in since .NET 9, works on .NET 8+ with the package)
 builder.Services.AddOpenApi();

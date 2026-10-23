@@ -1,5 +1,6 @@
 using IdempotentPayments.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace IdempotentPayments.Tests.Integration;
 
@@ -22,4 +23,13 @@ internal static class TestDatabase
     // Short timings for tests; still satisfies StaleAfter > 2 x ProviderTimeout + 10 s.
     public static readonly IdempotentPayments.Infrastructure.Services.IdempotencyOptions Options =
         new(staleAfter: TimeSpan.FromSeconds(15), providerTimeout: TimeSpan.FromSeconds(1));
+
+    // The hosted sweep runs a pass at startup and every 30 s over ALL stale rows in
+    // payment_test. Tests remove it so it can't settle rows another test just planted;
+    // sweep behaviour is tested by calling PaymentSweep.RunOnceAsync directly.
+    public static void RemoveSweepLoop(IServiceCollection s)
+    {
+        var loop = s.SingleOrDefault(d => d.ImplementationType == typeof(IdempotentPayments.Api.Services.PaymentSweepService));
+        if (loop is not null) s.Remove(loop);
+    }
 }

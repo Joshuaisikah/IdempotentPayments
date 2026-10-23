@@ -35,5 +35,6 @@ public class AppDbContext : DbContext
         keyEntity.Property(k => k.PaymentId);
         keyEntity.Property(k => k.CreatedAt).IsRequired();
         keyEntity.Property(k => k.ClaimedAt).IsRequired();
+        keyEntity.HasIndex(k => k.PaymentId).HasDatabaseName("IdempotencyKeys_PaymentId");
     }
 }

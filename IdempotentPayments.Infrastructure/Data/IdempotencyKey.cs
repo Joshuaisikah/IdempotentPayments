@@ -8,8 +8,7 @@ public class IdempotencyKey
     public string? ResponseBody { get; set; }
     public Guid? PaymentId { get; set; }
 
-    // CreatedAt stays: when the key was first used (M4 expiry)
-
+    // CreatedAt stays: when the key was first used (M5 expiry)
     public DateTime CreatedAt { get; set; }
 
     // when someone last took ownership (staleness)

@@ -55,13 +55,18 @@ public class PaymentService
             case PaymentStatus.Succeeded:
             case PaymentStatus.Failed:
                 return payment;
+
             case PaymentStatus.Pending:
                 return await ContinueAsync(payment, ct);
+
             case PaymentStatus.Processing:
+                await TouchOwnedAsync(payment, ct);
+
                 var status = await WithTimeout(
                     t => _provider.GetStatusAsync(payment.Id.ToString(), t),
                     ct
                 );
+
                 return status.Outcome switch
                 {
                     ProviderOutcome.Charged or ProviderOutcome.Declined => await SettleAsync(
@@ -73,6 +78,7 @@ public class PaymentService
                         $"Unexpected provider outcome '{status.Outcome}' from GetStatusAsync."
                     ),
                 };
+
             default:
                 throw new InvalidOperationException($"Unhandled status '{payment.Status}'.");
         }
@@ -86,6 +92,30 @@ public class PaymentService
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(_options.ProviderTimeout);
         return await call(cts.Token);
+    }
+
+    private async Task TouchOwnedAsync(Payment payment, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var updated = await _db
+            .Payments.Where(p =>
+                p.Id == payment.Id
+                && p.Status == PaymentStatus.Processing
+                && p.UpdatedAt == payment.UpdatedAt
+            )
+            .ExecuteUpdateAsync(
+                s =>
+                    s.SetProperty(p => p.Status, PaymentStatus.Processing)
+                        .SetProperty(p => p.UpdatedAt, now),
+                ct
+            );
+
+        if (updated == 0)
+            throw new InvalidOperationException(
+                $"Lost ownership of payment {payment.Id} before provider call."
+            );
+
+        payment.UpdatedAt = now;
     }
 
     private async Task<Payment> ContinueAsync(Payment payment, CancellationToken ct)
@@ -112,9 +142,13 @@ public class PaymentService
                 SetStatus(payment, PaymentStatus.Succeeded);
                 payment.ProviderReference = result.Reference;
                 break;
+
             case ProviderOutcome.Declined:
                 SetStatus(payment, PaymentStatus.Failed);
+                // ── ITEM 5: same FailureReason as the sweep path.
+                payment.FailureReason = PaymentOutcomeMapper.FailureReasonFor(result.Outcome);
                 break;
+
             default:
                 throw new InvalidOperationException(
                     $"Unexpected provider outcome '{result.Outcome}'."
@@ -133,8 +167,6 @@ public class PaymentService
             p.CompletedAt = now;
     }
 
-    public Task<Payment?> GetAsync(Guid id, CancellationToken ct)
-    {
-        return _db.Payments.FirstOrDefaultAsync(p => p.Id == id, ct);
-    }
+    public Task<Payment?> GetAsync(Guid id, CancellationToken ct) =>
+        _db.Payments.FirstOrDefaultAsync(p => p.Id == id, ct);
 }

@@ -19,14 +19,15 @@ public class IdempotencyStore
         CancellationToken ct
     )
     {
+        var now = DateTime.UtcNow;
         _db.IdempotencyKeys.Add(
             new IdempotencyKey
             {
                 Key = key,
                 RequestHash = requestHash,
                 PaymentId = paymentId,
-                CreatedAt = DateTime.UtcNow,
-                ClaimedAt = DateTime.UtcNow,
+                CreatedAt = now,
+                ClaimedAt = now,
             }
         );
 
@@ -55,7 +56,6 @@ public class IdempotencyStore
                 CancellationToken.None
             );
 
-    // WHERE guarantees: only one caller can match the ClaimedAt it read, and only while no response exists.
     public async Task<bool> TryTakeOverAsync(
         string key,
         DateTime seenClaimedAt,
@@ -68,6 +68,19 @@ public class IdempotencyStore
                 k.Key == key && k.ClaimedAt == seenClaimedAt && k.ResponseBody == null
             )
             .ExecuteUpdateAsync(s => s.SetProperty(k => k.ClaimedAt, now), ct);
-        return rows == 1; // 1 = we won, 0 = someone else won or A finished
+        return rows == 1;
+    }
+
+    public async Task<bool> TryCompleteIfPendingAsync(Guid paymentId, int statusCode, string body)
+    {
+        var rows = await _db
+            .IdempotencyKeys.Where(k => k.PaymentId == paymentId && k.ResponseBody == null)
+            .ExecuteUpdateAsync(
+                s =>
+                    s.SetProperty(k => k.ResponseStatusCode, statusCode)
+                        .SetProperty(k => k.ResponseBody, body),
+                CancellationToken.None
+            );
+        return rows == 1;
     }
 }
