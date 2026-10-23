@@ -27,6 +27,7 @@ public static class PaymentEndpoints
         HttpContext http,
         PaymentService service,
         IdempotencyStore store,
+        IdempotencyOptions options,
         CancellationToken ct
     )
     {
@@ -55,7 +56,18 @@ public static class PaymentEndpoints
 
         var existing = await store.FindAsync(idempotencyKey, ct);
         if (existing is not null)
-            return Resolve(http, existing, hash);
+            return await ResolveAsync(
+                http,
+                existing,
+                hash,
+                request.Amount,
+                currency,
+                service,
+                store,
+                options,
+                ct
+            );
+
         var paymentId = Guid.NewGuid();
         var claimed = await store.TryClaimAsync(idempotencyKey, hash, paymentId, ct);
         if (!claimed)
@@ -64,7 +76,17 @@ public static class PaymentEndpoints
             if (existing is null)
                 return InProgress(http);
 
-            return Resolve(http, existing, hash);
+            return await ResolveAsync(
+                http,
+                existing,
+                hash,
+                request.Amount,
+                currency,
+                service,
+                store,
+                options,
+                ct
+            );
         }
 
         var payment = await service.CreateAsync(paymentId, request.Amount, currency, ct);
@@ -75,22 +97,40 @@ public static class PaymentEndpoints
         return Replay(http, StatusCodes.Status201Created, body, payment.Id);
     }
 
-    private static IResult Resolve(HttpContext http, IdempotencyKey existing, string hash)
+    private static async Task<IResult> ResolveAsync(
+        HttpContext http,
+        IdempotencyKey existing,
+        string hash,
+        decimal amount,
+        string currency,
+        PaymentService service,
+        IdempotencyStore store,
+        IdempotencyOptions options,
+        CancellationToken ct
+    )
     {
         if (existing.RequestHash != hash)
             return Results.UnprocessableEntity(
                 new { error = "This Idempotency-Key was already used with a different request." }
             );
 
-        if (existing.ResponseBody is null || existing.ResponseStatusCode is null)
+        if (existing.ResponseBody is not null && existing.ResponseStatusCode is not null)
+            return Replay(
+                http,
+                existing.ResponseStatusCode.Value,
+                existing.ResponseBody,
+                existing.PaymentId
+            );
+
+        var age = DateTime.UtcNow - existing.CreatedAt;
+        if (age < options.StaleAfter || existing.PaymentId is null)
             return InProgress(http);
 
-        return Replay(
-            http,
-            existing.ResponseStatusCode.Value,
-            existing.ResponseBody,
-            existing.PaymentId
-        );
+        var payment = await service.ResumeAsync(existing.PaymentId.Value, amount, currency, ct);
+        var body = JsonSerializer.Serialize(ToResponse(payment), JsonOptions);
+        await store.CompleteAsync(existing.Key, StatusCodes.Status201Created, body);
+
+        return Replay(http, StatusCodes.Status201Created, body, payment.Id);
     }
 
     private static IResult InProgress(HttpContext http)

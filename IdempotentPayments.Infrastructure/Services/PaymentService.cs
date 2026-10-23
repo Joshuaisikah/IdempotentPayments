@@ -21,25 +21,82 @@ public class PaymentService
         CancellationToken ct
     )
     {
+        var now = DateTime.UtcNow;
         var payment = new Payment
         {
             Id = id,
             Amount = amount,
             Currency = currency,
             Status = PaymentStatus.Pending,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow,
+            CreatedAt = now,
+            UpdatedAt = now,
         };
         _db.Payments.Add(payment);
-        await _db.SaveChangesAsync(ct);
+        await _db.SaveChangesAsync(ct); // Pending: safe to cancel
+
+        return await ContinueAsync(payment, ct);
+    }
+
+    public async Task<Payment> ResumeAsync(
+        Guid id,
+        decimal amount,
+        string currency,
+        CancellationToken ct
+    )
+    {
+        var payment = await _db.Payments.FirstOrDefaultAsync(p => p.Id == id, ct);
+
+        if (payment is null)
+            return await CreateAsync(id, amount, currency, ct);
+
+        switch (payment.Status)
+        {
+            case PaymentStatus.Succeeded:
+            case PaymentStatus.Failed:
+                return payment;
+
+            case PaymentStatus.Pending:
+                return await ContinueAsync(payment, ct);
+
+            case PaymentStatus.Processing:
+                var status = await _provider.GetStatusAsync(payment.Id.ToString(), ct);
+                return status.Outcome switch
+                {
+                    ProviderOutcome.Charged or ProviderOutcome.Declined => await SettleAsync(
+                        payment,
+                        status
+                    ),
+                    ProviderOutcome.NotFound => await ChargeAndSettleAsync(payment, ct),
+                    _ => throw new InvalidOperationException(
+                        $"Unexpected provider outcome '{status.Outcome}' from GetStatusAsync."
+                    ),
+                };
+
+            default:
+                throw new InvalidOperationException($"Unhandled status '{payment.Status}'.");
+        }
+    }
+
+    private async Task<Payment> ContinueAsync(Payment payment, CancellationToken ct)
+    {
         SetStatus(payment, PaymentStatus.Processing);
-        await _db.SaveChangesAsync(ct);
+        await _db.SaveChangesAsync(ct); // Processing: still safe to cancel
+        return await ChargeAndSettleAsync(payment, ct);
+    }
+
+    private async Task<Payment> ChargeAndSettleAsync(Payment payment, CancellationToken ct)
+    {
         var result = await _provider.ChargeAsync(
             payment.Id.ToString(),
             payment.Amount,
             payment.Currency,
             ct
         );
+        return await SettleAsync(payment, result);
+    }
+
+    private async Task<Payment> SettleAsync(Payment payment, ProviderResult result)
+    {
         switch (result.Outcome)
         {
             case ProviderOutcome.Charged:
@@ -51,9 +108,10 @@ public class PaymentService
                 break;
             default:
                 throw new InvalidOperationException(
-                    $"Invalid outcome from '{result.Outcome}' from ChargeAsync."
+                    $"Unexpected provider outcome '{result.Outcome}'."
                 );
         }
+
         await _db.SaveChangesAsync(CancellationToken.None);
         return payment;
     }

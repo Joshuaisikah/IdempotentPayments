@@ -20,6 +20,11 @@ builder.Services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<Fake
 // Scoped, because it holds the scoped AppDbContext
 builder.Services.AddScoped<PaymentService>();
 builder.Services.AddScoped<IdempotencyStore>();
+var staleAfter = TimeSpan.FromSeconds(
+    builder.Configuration.GetValue("Idempotency:StaleAfterSeconds", 60)
+);
+builder.Services.AddSingleton(new IdempotencyOptions(staleAfter));
+
 // OpenAPI document generation (built-in since .NET 9, works on .NET 8+ with the package)
 builder.Services.AddOpenApi();
 var app = builder.Build();
