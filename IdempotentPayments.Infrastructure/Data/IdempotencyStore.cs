@@ -26,6 +26,7 @@ public class IdempotencyStore
                 RequestHash = requestHash,
                 PaymentId = paymentId,
                 CreatedAt = DateTime.UtcNow,
+                ClaimedAt = DateTime.UtcNow,
             }
         );
 
@@ -53,4 +54,20 @@ public class IdempotencyStore
                         .SetProperty(k => k.ResponseBody, body),
                 CancellationToken.None
             );
+
+    // WHERE guarantees: only one caller can match the ClaimedAt it read, and only while no response exists.
+    public async Task<bool> TryTakeOverAsync(
+        string key,
+        DateTime seenClaimedAt,
+        CancellationToken ct
+    )
+    {
+        var now = DateTime.UtcNow;
+        var rows = await _db
+            .IdempotencyKeys.Where(k =>
+                k.Key == key && k.ClaimedAt == seenClaimedAt && k.ResponseBody == null
+            )
+            .ExecuteUpdateAsync(s => s.SetProperty(k => k.ClaimedAt, now), ct);
+        return rows == 1; // 1 = we won, 0 = someone else won or A finished
+    }
 }

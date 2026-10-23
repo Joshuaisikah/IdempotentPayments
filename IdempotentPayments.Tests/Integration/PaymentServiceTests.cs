@@ -18,8 +18,7 @@ public class PaymentServiceTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await using var db = NewContext();
-        await db.Database.MigrateAsync();
+        await TestDatabase.EnsureMigratedAsync();
     }
 
     public Task DisposeAsync() => Task.CompletedTask;

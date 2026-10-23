@@ -34,5 +34,6 @@ public class AppDbContext : DbContext
         keyEntity.Property(k => k.ResponseBody);
         keyEntity.Property(k => k.PaymentId);
         keyEntity.Property(k => k.CreatedAt).IsRequired();
+        keyEntity.Property(k => k.ClaimedAt).IsRequired();
     }
 }

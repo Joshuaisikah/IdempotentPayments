@@ -64,8 +64,7 @@ public class TakeoverTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await using (var db = NewContext())
-            await db.Database.MigrateAsync();
+        await TestDatabase.EnsureMigratedAsync();
 
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
@@ -106,6 +105,7 @@ public class TakeoverTests : IAsyncLifetime
             RequestHash = hash ?? RequestFingerprint.Compute(Amount, Currency),
             PaymentId = paymentId == Guid.Empty ? null : x,
             CreatedAt = createdAt,
+            ClaimedAt = createdAt,
         });
         await db.SaveChangesAsync();
         return (key, x);
@@ -328,10 +328,10 @@ public class TakeoverTests : IAsyncLifetime
         ((int)dead.StatusCode).Should().BeGreaterThanOrEqualTo(500);
         _provider.Charges.Should().Be(1);
 
-        // Age the claim instead of waiting 30 s.
+        // Age the claim (ClaimedAt drives staleness) instead of waiting 30 s.
         await using (var db = NewContext())
             await db.IdempotencyKeys.Where(k => k.Key == key)
-                .ExecuteUpdateAsync(s => s.SetProperty(k => k.CreatedAt, LongAgo));
+                .ExecuteUpdateAsync(s => s.SetProperty(k => k.CreatedAt, LongAgo).SetProperty(k => k.ClaimedAt, LongAgo));
 
         var res = await Retry(key);
 

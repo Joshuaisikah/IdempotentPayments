@@ -122,8 +122,11 @@ public static class PaymentEndpoints
                 existing.PaymentId
             );
 
-        var age = DateTime.UtcNow - existing.CreatedAt;
+        var age = DateTime.UtcNow - existing.ClaimedAt;
         if (age < options.StaleAfter || existing.PaymentId is null)
+            return InProgress(http);
+
+        if (!await store.TryTakeOverAsync(existing.Key, existing.ClaimedAt, ct))
             return InProgress(http);
 
         var payment = await service.ResumeAsync(existing.PaymentId.Value, amount, currency, ct);
