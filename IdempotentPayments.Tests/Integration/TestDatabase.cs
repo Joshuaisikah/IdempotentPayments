@@ -18,4 +18,8 @@ internal static class TestDatabase
     });
 
     public static Task EnsureMigratedAsync() => Migrated.Value;
+
+    // Short timings for tests; still satisfies StaleAfter > 2 x ProviderTimeout + 10 s.
+    public static readonly IdempotentPayments.Infrastructure.Services.IdempotencyOptions Options =
+        new(staleAfter: TimeSpan.FromSeconds(15), providerTimeout: TimeSpan.FromSeconds(1));
 }

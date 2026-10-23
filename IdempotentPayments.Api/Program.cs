@@ -7,7 +7,6 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 //register the app  the database
-
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("paymentdb"))
 );
@@ -20,13 +19,20 @@ builder.Services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<Fake
 // Scoped, because it holds the scoped AppDbContext
 builder.Services.AddScoped<PaymentService>();
 builder.Services.AddScoped<IdempotencyStore>();
+
 var staleAfter = TimeSpan.FromSeconds(
-    builder.Configuration.GetValue("Idempotency:StaleAfterSeconds", 60)
+    builder.Configuration.GetValue("Idempotency:StaleAfterSeconds", 90)
 );
-builder.Services.AddSingleton(new IdempotencyOptions(staleAfter));
+var providerTimeout = TimeSpan.FromSeconds(
+    builder.Configuration.GetValue("Idempotency:ProviderTimeoutSeconds", 30)
+);
+
+// Throws here if the relationship is violated, so the app refuses to start.
+builder.Services.AddSingleton(new IdempotencyOptions(staleAfter, providerTimeout));
 
 // OpenAPI document generation (built-in since .NET 9, works on .NET 8+ with the package)
 builder.Services.AddOpenApi();
+
 var app = builder.Build();
 
 // Development-only: serve the OpenAPI document + Scalar UI
@@ -38,5 +44,4 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.MapPaymentEndpoints();
-
 app.Run();

@@ -7,11 +7,13 @@ public class PaymentService
 {
     private readonly AppDbContext _db;
     private readonly IPaymentProvider _provider;
+    private readonly IdempotencyOptions _options;
 
-    public PaymentService(AppDbContext db, IPaymentProvider provider)
+    public PaymentService(AppDbContext db, IPaymentProvider provider, IdempotencyOptions options)
     {
         _db = db;
         _provider = provider;
+        _options = options;
     }
 
     public async Task<Payment> CreateAsync(
@@ -33,7 +35,6 @@ public class PaymentService
         };
         _db.Payments.Add(payment);
         await _db.SaveChangesAsync(ct); // Pending: safe to cancel
-
         return await ContinueAsync(payment, ct);
     }
 
@@ -54,12 +55,13 @@ public class PaymentService
             case PaymentStatus.Succeeded:
             case PaymentStatus.Failed:
                 return payment;
-
             case PaymentStatus.Pending:
                 return await ContinueAsync(payment, ct);
-
             case PaymentStatus.Processing:
-                var status = await _provider.GetStatusAsync(payment.Id.ToString(), ct);
+                var status = await WithTimeout(
+                    t => _provider.GetStatusAsync(payment.Id.ToString(), t),
+                    ct
+                );
                 return status.Outcome switch
                 {
                     ProviderOutcome.Charged or ProviderOutcome.Declined => await SettleAsync(
@@ -71,10 +73,19 @@ public class PaymentService
                         $"Unexpected provider outcome '{status.Outcome}' from GetStatusAsync."
                     ),
                 };
-
             default:
                 throw new InvalidOperationException($"Unhandled status '{payment.Status}'.");
         }
+    }
+
+    private async Task<T> WithTimeout<T>(
+        Func<CancellationToken, Task<T>> call,
+        CancellationToken ct
+    )
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(_options.ProviderTimeout);
+        return await call(cts.Token);
     }
 
     private async Task<Payment> ContinueAsync(Payment payment, CancellationToken ct)
@@ -86,10 +97,8 @@ public class PaymentService
 
     private async Task<Payment> ChargeAndSettleAsync(Payment payment, CancellationToken ct)
     {
-        var result = await _provider.ChargeAsync(
-            payment.Id.ToString(),
-            payment.Amount,
-            payment.Currency,
+        var result = await WithTimeout(
+            t => _provider.ChargeAsync(payment.Id.ToString(), payment.Amount, payment.Currency, t),
             ct
         );
         return await SettleAsync(payment, result);
@@ -111,7 +120,6 @@ public class PaymentService
                     $"Unexpected provider outcome '{result.Outcome}'."
                 );
         }
-
         await _db.SaveChangesAsync(CancellationToken.None);
         return payment;
     }
@@ -125,6 +133,8 @@ public class PaymentService
             p.CompletedAt = now;
     }
 
-    public Task<Payment?> GetAsync(Guid id, CancellationToken ct) =>
-        _db.Payments.FirstOrDefaultAsync(p => p.Id == id, ct);
+    public Task<Payment?> GetAsync(Guid id, CancellationToken ct)
+    {
+        return _db.Payments.FirstOrDefaultAsync(p => p.Id == id, ct);
+    }
 }

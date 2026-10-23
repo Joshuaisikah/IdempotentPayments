@@ -62,7 +62,7 @@ public class TakeoverRaceTests : IAsyncLifetime
                 s.RemoveAll<IPaymentProvider>();
                 s.AddSingleton<IPaymentProvider>(_provider);
                 s.RemoveAll<IdempotencyOptions>();
-                s.AddSingleton(new IdempotencyOptions(TimeSpan.FromSeconds(30)));
+                s.AddSingleton(TestDatabase.Options);
             });
         });
         _client = _factory.CreateClient();

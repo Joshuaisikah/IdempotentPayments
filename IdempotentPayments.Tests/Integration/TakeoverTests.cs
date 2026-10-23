@@ -33,7 +33,7 @@ public class TakeoverTests : IAsyncLifetime
     private const decimal Amount = 40.00m;
     private const string Currency = "USD";
     private static readonly string Json = """{"amount": 40.00, "currency": "USD"}""";
-    private static readonly TimeSpan StaleAfter = TimeSpan.FromSeconds(30);
+    
 
     private readonly CountingProvider _provider = new();
     private WebApplicationFactory<Program> _factory = null!;
@@ -74,7 +74,7 @@ public class TakeoverTests : IAsyncLifetime
                 s.RemoveAll<IPaymentProvider>();
                 s.AddSingleton<IPaymentProvider>(_provider);
                 s.RemoveAll<IdempotencyOptions>();
-                s.AddSingleton(new IdempotencyOptions(StaleAfter));
+                s.AddSingleton(TestDatabase.Options);
             });
         });
         _client = _factory.CreateClient();
