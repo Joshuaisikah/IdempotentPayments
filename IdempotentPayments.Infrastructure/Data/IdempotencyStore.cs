@@ -1,3 +1,4 @@
+using IdempotentPayments.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
@@ -6,8 +7,16 @@ namespace IdempotentPayments.Infrastructure.Data;
 public class IdempotencyStore
 {
     private readonly AppDbContext _db;
+    private readonly TimeProvider _time;
 
-    public IdempotencyStore(AppDbContext db) => _db = db;
+    private readonly IdempotencyOptions _options;
+
+    public IdempotencyStore(AppDbContext db, TimeProvider time, IdempotencyOptions options)
+    {
+        _db = db;
+        _time = time;
+        _options = options;
+    }
 
     public Task<IdempotencyKey?> FindAsync(string key, CancellationToken ct) =>
         _db.IdempotencyKeys.AsNoTracking().FirstOrDefaultAsync(k => k.Key == key, ct);
@@ -19,7 +28,7 @@ public class IdempotencyStore
         CancellationToken ct
     )
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         _db.IdempotencyKeys.Add(
             new IdempotencyKey
             {
@@ -63,7 +72,7 @@ public class IdempotencyStore
         CancellationToken ct
     )
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var rows = await _db
             .IdempotencyKeys.Where(k =>
                 k.Key == key && k.ClaimedAt == seenClaimedAt && k.ResponseBody == null
@@ -83,5 +92,51 @@ public class IdempotencyStore
                 CancellationToken.None
             );
         return rows == 1;
+    }
+
+    // WHERE guarantees: one winner (CreatedAt must still be the value we read), and only a finished key is reclaimed.
+    public async Task<bool> TryReclaimExpiredAsync(
+        string key,
+        DateTime seenCreatedAt,
+        string newHash,
+        Guid newPaymentId,
+        CancellationToken ct
+    )
+    {
+        var now = _time.GetUtcNow().UtcDateTime;
+        var rows = await _db
+            .IdempotencyKeys.Where(k =>
+                k.Key == key && k.CreatedAt == seenCreatedAt && k.ResponseBody != null
+            )
+            .ExecuteUpdateAsync(
+                s =>
+                    s.SetProperty(k => k.RequestHash, newHash)
+                        .SetProperty(k => k.PaymentId, newPaymentId)
+                        .SetProperty(k => k.CreatedAt, now)
+                        .SetProperty(k => k.ClaimedAt, now)
+                        .SetProperty(k => k.ResponseStatusCode, (int?)null)
+                        .SetProperty(k => k.ResponseBody, (string?)null),
+                ct
+            );
+        return rows == 1;
+    }
+
+    // Housekeeping only. The read check in ResolveAsync is the real rule.
+    public async Task<int> DeleteExpiredAsync(int batchSize, CancellationToken ct)
+    {
+        var cutoff = _time.GetUtcNow().UtcDateTime - _options.KeyLifetime;
+        var keys = await _db
+            .IdempotencyKeys.Where(k => k.ResponseBody != null && k.CreatedAt < cutoff)
+            .OrderBy(k => k.CreatedAt)
+            .Select(k => k.Key)
+            .Take(batchSize)
+            .ToListAsync(ct);
+
+        // WHERE is re-checked at delete time, so a row re-claimed a moment ago survives.
+        return await _db
+            .IdempotencyKeys.Where(k =>
+                keys.Contains(k.Key) && k.ResponseBody != null && k.CreatedAt < cutoff
+            )
+            .ExecuteDeleteAsync(ct);
     }
 }

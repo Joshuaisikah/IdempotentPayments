@@ -96,7 +96,7 @@ public class WriteAheadClaimTests : IAsyncLifetime
     {
         var id = Guid.NewGuid();
         await using var db = NewContext();
-        var service = new PaymentService(db, _provider, TestDatabase.Options);
+        var service = new PaymentService(db, _provider, TestDatabase.Options, TimeProvider.System);
 
         var created = await service.CreateAsync(id, 20.00m, "USD", CancellationToken.None);
 

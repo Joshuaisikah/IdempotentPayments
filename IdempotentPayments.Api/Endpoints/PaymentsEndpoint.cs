@@ -28,6 +28,7 @@ public static class PaymentEndpoints
         PaymentService service,
         IdempotencyStore store,
         IdempotencyOptions options,
+        TimeProvider time,
         CancellationToken ct
     )
     {
@@ -62,6 +63,7 @@ public static class PaymentEndpoints
                 service,
                 store,
                 options,
+                time,
                 ct
             );
 
@@ -81,18 +83,40 @@ public static class PaymentEndpoints
                 service,
                 store,
                 options,
+                time,
                 ct
             );
         }
+        return await CreateNewAsync(
+            http,
+            idempotencyKey,
+            paymentId,
+            request.Amount,
+            currency,
+            service,
+            store,
+            ct
+        );
+    }
 
+    private static async Task<IResult> CreateNewAsync(
+        HttpContext http,
+        string key,
+        Guid paymentId,
+        decimal amount,
+        string currency,
+        PaymentService service,
+        IdempotencyStore store,
+        CancellationToken ct
+    )
+    {
         try
         {
-            var payment = await service.CreateAsync(paymentId, request.Amount, currency, ct);
+            var payment = await service.CreateAsync(paymentId, amount, currency, ct);
             var body = JsonSerializer.Serialize(ToResponse(payment), JsonOptions);
-            await store.CompleteAsync(idempotencyKey, StatusCodes.Status201Created, body);
+            await store.CompleteAsync(key, StatusCodes.Status201Created, body);
             return Replay(http, StatusCodes.Status201Created, body, payment.Id);
         }
-        // ProviderTimeout fired (outcome unknown) → 503. Client disconnect → rethrow.
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             return ServiceUnavailable(http);
@@ -108,9 +132,52 @@ public static class PaymentEndpoints
         PaymentService service,
         IdempotencyStore store,
         IdempotencyOptions options,
+        TimeProvider time,
         CancellationToken ct
     )
     {
+        // Expired and finished: the key is forgotten. Only one reclaimer wins.
+        var now = time.GetUtcNow().UtcDateTime;
+        if (existing.ResponseBody is not null && now - existing.CreatedAt > options.KeyLifetime)
+        {
+            var newId = Guid.NewGuid();
+            if (
+                await store.TryReclaimExpiredAsync(
+                    existing.Key,
+                    existing.CreatedAt,
+                    hash,
+                    newId,
+                    ct
+                )
+            )
+                return await CreateNewAsync(
+                    http,
+                    existing.Key,
+                    newId,
+                    amount,
+                    currency,
+                    service,
+                    store,
+                    ct
+                );
+
+            // Lost: the row is fresh now, so resolving it again cannot loop.
+            var current = await store.FindAsync(existing.Key, ct);
+            return current is null
+                ? InProgress(http)
+                : await ResolveAsync(
+                    http,
+                    current,
+                    hash,
+                    amount,
+                    currency,
+                    service,
+                    store,
+                    options,
+                    time,
+                    ct
+                );
+        }
         if (existing.RequestHash != hash)
             return Results.UnprocessableEntity(
                 new { error = "This Idempotency-Key was already used with a different request." }
@@ -124,7 +191,7 @@ public static class PaymentEndpoints
                 existing.PaymentId
             );
 
-        var age = DateTime.UtcNow - existing.ClaimedAt;
+        var age = time.GetUtcNow().UtcDateTime - existing.ClaimedAt;
         if (age < options.StaleAfter || existing.PaymentId is null)
             return InProgress(http);
 

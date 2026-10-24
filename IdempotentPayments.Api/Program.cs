@@ -28,9 +28,11 @@ var providerTimeout = TimeSpan.FromSeconds(
     builder.Configuration.GetValue("Idempotency:ProviderTimeoutSeconds", 30)
 );
 
-// Throws here if the relationship is violated, so the app refuses to start.
-builder.Services.AddSingleton(new IdempotencyOptions(staleAfter, providerTimeout));
-
+var keyLifetime = TimeSpan.FromHours(
+    builder.Configuration.GetValue("Idempotency:KeyLifetimeHours", 24)
+);
+builder.Services.AddSingleton(new IdempotencyOptions(staleAfter, providerTimeout, keyLifetime));
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<PaymentSweep>();
 builder.Services.AddHostedService<PaymentSweepService>();
 

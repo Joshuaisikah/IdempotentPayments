@@ -8,12 +8,19 @@ public class PaymentService
     private readonly AppDbContext _db;
     private readonly IPaymentProvider _provider;
     private readonly IdempotencyOptions _options;
+    private readonly TimeProvider _time;
 
-    public PaymentService(AppDbContext db, IPaymentProvider provider, IdempotencyOptions options)
+    public PaymentService(
+        AppDbContext db,
+        IPaymentProvider provider,
+        IdempotencyOptions options,
+        TimeProvider time
+    )
     {
         _db = db;
         _provider = provider;
         _options = options;
+        _time = time;
     }
 
     public async Task<Payment> CreateAsync(
@@ -23,7 +30,7 @@ public class PaymentService
         CancellationToken ct
     )
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var payment = new Payment
         {
             Id = id,
@@ -111,7 +118,7 @@ public class PaymentService
 
     private async Task TouchOwnedAsync(Payment payment, CancellationToken ct)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         var updated = await _db
             .Payments.Where(p =>
                 p.Id == payment.Id
@@ -144,7 +151,7 @@ public class PaymentService
     {
         var readStatus = payment.Status;
         var readUpdatedAt = payment.UpdatedAt;
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
 
         // Only one of {takeover, sweep} may move this row out of its current state.
         var updated = await _db
@@ -190,9 +197,9 @@ public class PaymentService
         return payment;
     }
 
-    private static void SetStatus(Payment p, PaymentStatus status)
+    private void SetStatus(Payment p, PaymentStatus status)
     {
-        var now = DateTime.UtcNow;
+        var now = _time.GetUtcNow().UtcDateTime;
         p.Status = status;
         p.UpdatedAt = now;
         if (status is PaymentStatus.Succeeded or PaymentStatus.Failed)

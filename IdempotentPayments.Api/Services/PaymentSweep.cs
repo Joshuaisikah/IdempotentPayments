@@ -15,11 +15,14 @@ public sealed class PaymentSweep
     private readonly IdempotencyOptions _options;
     private readonly ILogger<PaymentSweep> _log;
 
+    private readonly TimeProvider _time;
+
     public PaymentSweep(
         AppDbContext db,
         IPaymentProvider provider,
         IdempotencyStore store,
         IdempotencyOptions options,
+        TimeProvider time,
         ILogger<PaymentSweep> log
     )
     {
@@ -27,12 +30,13 @@ public sealed class PaymentSweep
         _provider = provider;
         _store = store;
         _options = options;
+        _time = time;
         _log = log;
     }
 
     public async Task<int> RunOnceAsync(CancellationToken ct)
     {
-        var cutoff = DateTime.UtcNow - _options.StaleAfter;
+        var cutoff = _time.GetUtcNow().UtcDateTime - _options.StaleAfter;
 
         var stuck = await _db
             .Payments.Where(p =>
@@ -75,7 +79,7 @@ public sealed class PaymentSweep
                 }
             }
 
-            var completedAt = DateTime.UtcNow;
+            var completedAt = _time.GetUtcNow().UtcDateTime;
             PaymentStatus newStatus;
             string? newFailureReason;
             string? newReference;
@@ -152,6 +156,9 @@ public sealed class PaymentSweep
         if (settled > 0)
             _log.LogInformation("Sweep settled {Count} stuck payment(s).", settled);
 
+        var deleted = await _store.DeleteExpiredAsync(100, ct);
+        if (deleted > 0)
+            _log.LogInformation("Sweep deleted {Count} expired key(s).", deleted);
         return settled;
     }
 

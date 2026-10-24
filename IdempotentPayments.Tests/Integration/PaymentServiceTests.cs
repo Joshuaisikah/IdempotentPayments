@@ -60,7 +60,7 @@ public class PaymentServiceTests : IAsyncLifetime
     public async Task Successful_charge_is_saved_as_Succeeded_with_provider_reference()
     {
         await using var db = NewContext();
-        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options);
+        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options, TimeProvider.System);
 
         var created = await service.CreateAsync(Guid.NewGuid(), 10.50m, "USD", CancellationToken.None);
 
@@ -76,7 +76,7 @@ public class PaymentServiceTests : IAsyncLifetime
     public async Task Declined_charge_is_saved_as_Failed_without_provider_reference()
     {
         await using var db = NewContext();
-        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Decline), TestDatabase.Options);
+        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Decline), TestDatabase.Options, TimeProvider.System);
 
         var created = await service.CreateAsync(Guid.NewGuid(), 5m, "USD", CancellationToken.None);
 
@@ -91,7 +91,7 @@ public class PaymentServiceTests : IAsyncLifetime
     {
         await using var db = NewContext();
         var provider = new AlwaysProvider(FakePaymentProvider.Behaviour.Success);
-        var service = new PaymentService(db, provider, TestDatabase.Options);
+        var service = new PaymentService(db, provider, TestDatabase.Options, TimeProvider.System);
 
         var created = await service.CreateAsync(Guid.NewGuid(), 1m, "USD", CancellationToken.None);
 
@@ -103,7 +103,7 @@ public class PaymentServiceTests : IAsyncLifetime
     public async Task Timestamps_are_set_and_UTC()
     {
         await using var db = NewContext();
-        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options);
+        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options, TimeProvider.System);
         var before = DateTime.UtcNow.AddSeconds(-5);
 
         var created = await service.CreateAsync(Guid.NewGuid(), 1m, "USD", CancellationToken.None);
@@ -118,7 +118,7 @@ public class PaymentServiceTests : IAsyncLifetime
     public async Task Finished_payment_has_CompletedAt()
     {
         await using var db = NewContext();
-        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options);
+        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options, TimeProvider.System);
 
         var created = await service.CreateAsync(Guid.NewGuid(), 1m, "USD", CancellationToken.None);
 
@@ -133,7 +133,7 @@ public class PaymentServiceTests : IAsyncLifetime
         using var cts = new CancellationTokenSource();
         await using var db = NewContext();
         var provider = new ChargeThenCancelProvider(cts);
-        var service = new PaymentService(db, provider, TestDatabase.Options);
+        var service = new PaymentService(db, provider, TestDatabase.Options, TimeProvider.System);
 
         Guid? id = null;
         try
@@ -158,11 +158,11 @@ public class PaymentServiceTests : IAsyncLifetime
     public async Task GetAsync_returns_the_payment()
     {
         await using var db = NewContext();
-        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options);
+        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options, TimeProvider.System);
         var created = await service.CreateAsync(Guid.NewGuid(), 3m, "USD", CancellationToken.None);
 
         await using var db2 = NewContext();
-        var found = await new PaymentService(db2, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options)
+        var found = await new PaymentService(db2, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options, TimeProvider.System)
             .GetAsync(created.Id, CancellationToken.None);
 
         found.Should().NotBeNull();
@@ -173,7 +173,7 @@ public class PaymentServiceTests : IAsyncLifetime
     public async Task GetAsync_unknown_id_returns_null()
     {
         await using var db = NewContext();
-        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options);
+        var service = new PaymentService(db, new AlwaysProvider(FakePaymentProvider.Behaviour.Success), TestDatabase.Options, TimeProvider.System);
 
         var found = await service.GetAsync(Guid.NewGuid(), CancellationToken.None);
 

@@ -86,7 +86,7 @@ public class ProviderTimeoutTests : IAsyncLifetime
     {
         var provider = new HangingProvider(hangCharge: true, hangStatus: false);
         await using var db = NewContext();
-        var service = new PaymentService(db, provider, TestDatabase.Options);
+        var service = new PaymentService(db, provider, TestDatabase.Options, TimeProvider.System);
         var id = Guid.NewGuid();
 
         var sw = Stopwatch.StartNew();
@@ -108,7 +108,7 @@ public class ProviderTimeoutTests : IAsyncLifetime
         using var neverCancelled = new CancellationTokenSource();
         var provider = new HangingProvider(hangCharge: true, hangStatus: false);
         await using var db = NewContext();
-        var service = new PaymentService(db, provider, TestDatabase.Options);
+        var service = new PaymentService(db, provider, TestDatabase.Options, TimeProvider.System);
 
         var sw = Stopwatch.StartNew();
         var act = () => service.CreateAsync(Guid.NewGuid(), 51.00m, "USD", neverCancelled.Token);
@@ -124,7 +124,7 @@ public class ProviderTimeoutTests : IAsyncLifetime
         using var cts = new CancellationTokenSource();
         var provider = new HangingProvider(hangCharge: true, hangStatus: false);
         await using var db = NewContext();
-        var service = new PaymentService(db, provider, TestDatabase.Options);
+        var service = new PaymentService(db, provider, TestDatabase.Options, TimeProvider.System);
 
         var task = service.CreateAsync(Guid.NewGuid(), 52.00m, "USD", cts.Token);
         await provider.ChargeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)); // cancel only once the provider is reached
@@ -154,7 +154,7 @@ public class ProviderTimeoutTests : IAsyncLifetime
 
         var provider = new HangingProvider(hangCharge: false, hangStatus: true);
         await using var db = NewContext();
-        var service = new PaymentService(db, provider, TestDatabase.Options);
+        var service = new PaymentService(db, provider, TestDatabase.Options, TimeProvider.System);
 
         var sw = Stopwatch.StartNew();
         var act = () => service.ResumeAsync(x, 53.00m, "USD", CancellationToken.None);
